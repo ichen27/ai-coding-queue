@@ -18,6 +18,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function SessionCard({ session, queueItem: _queueItem, onCommand }: SessionCardProps) {
   const [reply, setReply] = useState("");
+  const [showOutput, setShowOutput] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
   function sendReply() {
@@ -56,8 +57,8 @@ export function SessionCard({ session, queueItem: _queueItem, onCommand }: Sessi
         <span className="status-label">{session.status.replace("_", " ")}</span>
       </div>
 
-      {session.tail_output && (
-        <pre className="tail-output">{session.tail_output}</pre>
+      {session.summary && (
+        <div className="summary-line">{session.summary}</div>
       )}
 
       {isPermission && (
@@ -79,11 +80,20 @@ export function SessionCard({ session, queueItem: _queueItem, onCommand }: Sessi
       )}
 
       <div className="card-actions">
+        {session.tail_output && (
+          <button className="btn btn-link" onClick={() => setShowOutput(!showOutput)}>
+            {showOutput ? "Hide output" : "Show output"}
+          </button>
+        )}
         <button className="btn btn-link" onClick={() => setShowHistory(!showHistory)}>
-          {showHistory ? "Hide history" : "Show history"}
+          {showHistory ? "Hide history" : "Full history"}
         </button>
         <button className="btn btn-link" onClick={jumpToTab}>Jump to Tab</button>
       </div>
+
+      {showOutput && session.tail_output && (
+        <pre className="tail-output">{session.tail_output}</pre>
+      )}
 
       {showHistory && <HistoryPanel sessionId={session.session_id} />}
     </div>

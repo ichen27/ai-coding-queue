@@ -14,7 +14,7 @@ import websockets
 import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
-from patterns import detect_state, extract_tail
+from patterns import detect_state, extract_tail, clean_output, extract_summary
 
 SERVER_URL = "ws://localhost:7890/ws/monitor"
 POLL_INTERVAL = 2.0
@@ -124,11 +124,13 @@ async def poll_sessions(ws, app):
                         if state != prev_state:
                             _prev_state[sid] = state
 
+                            tail_raw = extract_tail(full_text, 50)
                             event = {
                                 "session_id": sid,
                                 "tab_name": str(tab_name),
                                 "event_type": state,
-                                "tail_output": extract_tail(full_text, 50),
+                                "tail_output": clean_output(tail_raw),
+                                "summary": extract_summary(full_text, state),
                                 "full_output": full_text,
                                 "timestamp": now,
                             }

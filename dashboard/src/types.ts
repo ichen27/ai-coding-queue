@@ -5,6 +5,7 @@ export interface SessionState {
   tab_name: string;
   status: SessionStatus;
   tail_output: string;
+  summary: string;
   last_event_time: number;
 }
 
@@ -22,6 +23,7 @@ export interface MonitorEvent {
   tab_name: string;
   event_type: SessionStatus;
   tail_output: string;
+  summary: string;
   full_output: string;
   timestamp: number;
 }

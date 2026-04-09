@@ -9,6 +9,7 @@ class SessionState(BaseModel):
     tab_name: str
     status: Literal["working", "ready", "needs_input", "permission_prompt", "idle"] = "working"
     tail_output: str = ""
+    summary: str = ""
     last_event_time: float = Field(default_factory=time.time)
 
 
@@ -26,6 +27,7 @@ class MonitorEvent(BaseModel):
     tab_name: str
     event_type: Literal["ready", "needs_input", "permission_prompt", "working"]
     tail_output: str = ""
+    summary: str = ""
     full_output: str = ""
     timestamp: float = Field(default_factory=time.time)
 

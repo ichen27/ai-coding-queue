@@ -23,6 +23,7 @@ export default function App() {
             tab_name: event.tab_name,
             status: event.event_type,
             tail_output: event.tail_output,
+            summary: event.summary || "",
             last_event_time: event.timestamp,
           },
         }));

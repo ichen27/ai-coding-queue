@@ -13,12 +13,14 @@ class StateManager:
             session = self.sessions[sid]
             session.status = event.event_type
             session.tail_output = event.tail_output
+            session.summary = event.summary
             session.tab_name = event.tab_name
             session.last_event_time = event.timestamp
         else:
             self.sessions[sid] = SessionState(
                 session_id=sid, tab_name=event.tab_name, status=event.event_type,
-                tail_output=event.tail_output, last_event_time=event.timestamp,
+                tail_output=event.tail_output, summary=event.summary,
+                last_event_time=event.timestamp,
             )
         if event.full_output:
             self.full_outputs[sid] = event.full_output
