@@ -1,39 +1,91 @@
 import re
 
+# --- Claude Code session detection ---
+# These patterns identify whether a session is running Claude Code at all
+_CLAUDE_CODE_SIGNATURES = [
+    re.compile(r"Context\s+[█░]+\s+\d+%"),       # Context progress bar
+    re.compile(r"\[(?:Opus|Sonnet|Haiku|Claude)\s+[\d.]+\]", re.IGNORECASE),  # Model name
+    re.compile(r"bypass permissions", re.IGNORECASE),  # Permission mode indicator
+    re.compile(r"Co-Authored-By:.*Claude"),        # Commit signature
+]
+
+
+def is_claude_code_session(output: str) -> bool:
+    """Check if the terminal output looks like a Claude Code session."""
+    if not output.strip():
+        return False
+    # Need at least one signature match
+    for pattern in _CLAUDE_CODE_SIGNATURES:
+        if pattern.search(output):
+            return True
+    return False
+
+
+# --- State detection (only for Claude Code sessions) ---
+
+# Permission prompts — Claude Code shows these when tools need approval
 _PERMISSION_PATTERNS = [
     re.compile(r"Allow\s+Deny", re.IGNORECASE),
-    re.compile(r"^\s*(Yes|No)\s+(Yes|No)\s*$", re.MULTILINE),
     re.compile(r"\(y/n\)", re.IGNORECASE),
 ]
 
+# Claude Code ready prompt — ❯ after the separator line
 _READY_PATTERNS = [
-    re.compile(r"[❯>]\s*$"),
-    re.compile(r"\$\s*$"),
+    re.compile(r"─{5,}\n❯"),                      # ❯ right after separator
+    re.compile(r"❯\s*$"),                          # ❯ at end of content
 ]
 
+# Question patterns — Claude is asking something
 _QUESTION_PATTERNS = [
     re.compile(r"\?\s*$", re.MULTILINE),
 ]
 
 
 def detect_state(output: str) -> str:
+    """Analyze terminal output and return the detected Claude Code state.
+
+    Returns one of: "permission_prompt", "ready", "needs_input", "working"
+    """
     if not output.strip():
         return "working"
+
     lines = output.strip().split("\n")
-    recent = "\n".join(lines[-20:])
+    recent = "\n".join(lines[-30:])
+
+    # Highest priority: permission prompts
     for pattern in _PERMISSION_PATTERNS:
         if pattern.search(recent):
             return "permission_prompt"
+
+    # Check if Claude Code is at its input prompt (❯ after separator)
     for pattern in _READY_PATTERNS:
         if pattern.search(recent):
             return "ready"
-    for pattern in _QUESTION_PATTERNS:
-        if pattern.search(lines[-1]):
-            return "needs_input"
+
+    # Question — Claude is asking something (check last non-empty line before status bar)
+    # Skip the status bar lines (Context, bypass permissions, model name)
+    content_lines = []
+    for line in reversed(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Skip Claude Code status bar lines
+        if any(kw in stripped for kw in ["Context ", "bypass permissions", "─────", "❯"]):
+            continue
+        if re.match(r"\[(?:Opus|Sonnet|Haiku|Claude)", stripped):
+            continue
+        content_lines.append(stripped)
+        if len(content_lines) >= 5:
+            break
+
+    if content_lines and "?" in content_lines[0]:
+        return "needs_input"
+
     return "working"
 
 
 def extract_tail(output: str, num_lines: int = 50) -> str:
+    """Extract the last N lines from output."""
     lines = output.split("\n")
     if len(lines) <= num_lines:
         return output
@@ -44,15 +96,12 @@ def extract_tail(output: str, num_lines: int = 50) -> str:
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[.*?[@-~]")
 # Control characters (except newline and tab)
 _CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
-# 3+ consecutive blank lines → 1
-_MULTI_BLANK_RE = re.compile(r"\n{3,}")
 
 
 def clean_output(text: str) -> str:
     """Strip ANSI codes, control chars, and collapse excessive blank lines."""
     text = _ANSI_RE.sub("", text)
     text = _CTRL_RE.sub("", text)
-    # Collapse runs of whitespace-only lines
     lines = text.split("\n")
     cleaned = []
     blank_count = 0
@@ -74,44 +123,45 @@ def extract_summary(output: str, state: str) -> str:
     if not cleaned:
         return ""
 
-    lines = [l for l in cleaned.split("\n") if l.strip()]
-    if not lines:
+    lines = cleaned.split("\n")
+
+    # Find meaningful content lines (skip status bar, separators, empty)
+    content_lines = []
+    for line in reversed(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Skip Claude Code chrome
+        if any(kw in stripped for kw in ["Context ", "bypass permissions", "─────", "❯", "new task?"]):
+            continue
+        if re.match(r"\[(?:Opus|Sonnet|Haiku|Claude)", stripped):
+            continue
+        if stripped.startswith("Worked for") or stripped.startswith("Baked for") or stripped.startswith("Sautéed for") or stripped.startswith("Brewed for"):
+            continue
+        if stripped.startswith("✻"):
+            continue
+        content_lines.append(stripped)
+        if len(content_lines) >= 5:
+            break
+
+    if not content_lines:
         return ""
 
     if state == "permission_prompt":
-        # Look for the line describing what permission is needed
-        for line in reversed(lines):
+        for line in content_lines:
             lower = line.lower()
             if "allow" in lower and "deny" in lower:
-                continue  # Skip the Allow/Deny buttons line itself
-            if "yes" == lower.strip() or "no" == lower.strip():
                 continue
             if line.strip():
                 return _truncate(line.strip(), 120)
-        return _truncate(lines[-1].strip(), 120)
 
     if state == "needs_input":
-        # Find the last question
-        for line in reversed(lines):
+        for line in content_lines:
             if "?" in line:
                 return _truncate(line.strip(), 120)
-        return _truncate(lines[-1].strip(), 120)
 
-    if state == "ready":
-        # Find the last meaningful non-prompt line
-        for line in reversed(lines):
-            stripped = line.strip()
-            if stripped in ("❯", ">", "$", ""):
-                continue
-            return _truncate(stripped, 120)
-
-    # working — show last meaningful line
-    for line in reversed(lines):
-        stripped = line.strip()
-        if stripped:
-            return _truncate(stripped, 120)
-
-    return ""
+    # For ready/working — show the last meaningful content line
+    return _truncate(content_lines[0].strip(), 120)
 
 
 def _truncate(text: str, max_len: int) -> str:

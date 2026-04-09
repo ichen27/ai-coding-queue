@@ -14,11 +14,10 @@ import websockets
 import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
-from patterns import detect_state, extract_tail, clean_output, extract_summary
+from patterns import detect_state, extract_tail, clean_output, extract_summary, is_claude_code_session
 
 SERVER_URL = "ws://localhost:7890/ws/monitor"
 POLL_INTERVAL = 2.0
-IDLE_THRESHOLD = 3.0
 
 _prev_content: dict[str, str] = {}
 _prev_state: dict[str, str] = {}
@@ -109,16 +108,18 @@ async def poll_sessions(ws, app):
                         except Exception:
                             continue
 
+                        if not is_claude_code_session(full_text):
+                            # Not a Claude Code session — skip
+                            if sid in _prev_state:
+                                del _prev_state[sid]
+                            continue
+
                         prev = _prev_content.get(sid, "")
                         if full_text != prev:
                             _prev_content[sid] = full_text
                             _last_change_time[sid] = now
 
                         state = detect_state(full_text)
-
-                        time_since_change = now - _last_change_time.get(sid, now)
-                        if state == "working" and time_since_change > IDLE_THRESHOLD:
-                            state = "ready"
 
                         prev_state = _prev_state.get(sid)
                         if state != prev_state:
