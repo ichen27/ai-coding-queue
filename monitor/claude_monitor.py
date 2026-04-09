@@ -85,7 +85,7 @@ async def handle_commands(ws, app):
 
             if cmd == "send_text":
                 text = payload.get("text", "")
-                await session.async_send_text(text + "\n")
+                await session.async_send_text(text + "\r")
                 print(f"[monitor] Sent text to {sid}: {text[:50]}")
 
             elif cmd == "focus_tab":
