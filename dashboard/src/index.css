@@ -85,9 +85,9 @@ body {
 
 .card-red { border-left: 2px solid var(--red); }
 .card-yellow { border-left: 2px solid var(--yellow); }
-.card-green { border-left: 2px solid var(--green); }
-.card-blue { border-left: 2px solid var(--blue); }
-.card-gray { border-left: 2px solid var(--border); }
+.card-green { border-left: none; }
+.card-blue { border-left: none; }
+.card-gray { border-left: none; }
 
 .card-header {
   display: flex;
