@@ -11,6 +11,9 @@ import json
 import iterm2
 import websockets
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
 from patterns import detect_state, extract_tail
 
 SERVER_URL = "ws://localhost:7890/ws/monitor"
@@ -20,6 +23,21 @@ IDLE_THRESHOLD = 3.0
 _prev_content: dict[str, str] = {}
 _prev_state: dict[str, str] = {}
 _last_change_time: dict[str, float] = {}
+
+NUM_LINES_TO_READ = 200  # Read last N lines from each session
+
+
+async def read_session_contents(session) -> str:
+    """Read terminal contents from a session using the iTerm2 API."""
+    line_info = await session.async_get_line_info()
+    overflow = line_info.overflow
+    total = line_info.mutable_area_height + line_info.scrollback_buffer_height
+    first_line = max(overflow, total - NUM_LINES_TO_READ + overflow)
+    num_lines = min(NUM_LINES_TO_READ, total - (first_line - overflow))
+    if num_lines <= 0:
+        return ""
+    contents = await session.async_get_contents(first_line, num_lines)
+    return "\n".join(line.string for line in contents)
 
 
 async def connect_to_server():
@@ -68,11 +86,8 @@ async def handle_commands(ws, app):
                             break
 
             elif cmd == "get_history":
-                contents = await session.async_get_contents()
-                lines = []
-                for line in contents:
-                    lines.append(line.string)
-                print(f"[monitor] History requested for {sid}: {len(lines)} lines")
+                full_text = await read_session_contents(session)
+                print(f"[monitor] History requested for {sid}: {len(full_text.split(chr(10)))} lines")
 
     except websockets.ConnectionClosed:
         print("[monitor] Server connection lost in command handler")
@@ -90,11 +105,9 @@ async def poll_sessions(ws, app):
                         sid = session.session_id
 
                         try:
-                            contents = await session.async_get_contents()
+                            full_text = await read_session_contents(session)
                         except Exception:
                             continue
-
-                        full_text = "\n".join(line.string for line in contents)
 
                         prev = _prev_content.get(sid, "")
                         if full_text != prev:
