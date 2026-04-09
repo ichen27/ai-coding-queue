@@ -1,0 +1,7 @@
+.venv
+node_modules
+dist
+.server.pid
+__pycache__
+*.pyc
+.superpowers/
