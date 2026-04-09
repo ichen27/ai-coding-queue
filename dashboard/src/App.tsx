@@ -1,11 +1,11 @@
 import { useCallback, useState } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
-import { StatusBar } from "./components/StatusBar";
-import { QueueList } from "./components/QueueList";
+import { Inbox } from "./components/Inbox";
 import type { SessionState, Command, ServerMessage } from "./types";
 
 export default function App() {
   const [sessions, setSessions] = useState<Record<string, SessionState>>({});
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const handleMessage = useCallback((msg: ServerMessage) => {
     switch (msg.type) {
@@ -55,18 +55,15 @@ export default function App() {
     Notification.requestPermission();
   }
 
-  const attention = Object.values(sessions).filter(
-    (s) => s.status === "ready" || s.status === "needs_input" || s.status === "permission_prompt"
-  ).length;
-  const working = Object.values(sessions).filter((s) => s.status === "working").length;
-  const idle = Object.values(sessions).filter((s) => s.status === "idle").length;
+  const selected = selectedId ? sessions[selectedId] || null : null;
 
   return (
-    <div className="app">
-      <StatusBar connected={connected} attentionCount={attention} workingCount={working} idleCount={idle} />
-      <main>
-        <QueueList sessions={sessions} onCommand={handleCommand} />
-      </main>
-    </div>
+    <Inbox
+      sessions={sessions}
+      selected={selected}
+      connected={connected}
+      onSelect={setSelectedId}
+      onCommand={handleCommand}
+    />
   );
 }
