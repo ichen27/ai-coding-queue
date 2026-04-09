@@ -14,7 +14,7 @@ import websockets
 import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
-from patterns import detect_state, extract_tail, clean_output, extract_summary, is_claude_code_session
+from patterns import detect_state, clean_output, strip_chrome, is_claude_code_session
 
 SERVER_URL = "ws://localhost:7890/ws/monitor"
 POLL_INTERVAL = 2.0
@@ -128,24 +128,29 @@ async def poll_sessions(ws, app):
                             continue
 
                         prev = _prev_content.get(sid, "")
-                        if full_text != prev:
+                        content_changed = full_text != prev
+                        if content_changed:
                             _prev_content[sid] = full_text
                             _last_change_time[sid] = now
 
-                        state = detect_state(full_text)
+                        state = detect_state(full_text, content_changed=content_changed)
 
                         prev_state = _prev_state.get(sid)
-                        if state != prev_state:
+                        state_changed = state != prev_state
+                        if state_changed:
                             _prev_state[sid] = state
 
-                            tail_raw = extract_tail(full_text, 50)
+                        # Send update on state change OR content change
+                        if state_changed or content_changed:
+                            cleaned = clean_output(full_text)
+                            stripped = strip_chrome(cleaned)
                             event = {
                                 "session_id": sid,
                                 "tab_name": str(tab_name),
                                 "event_type": state,
-                                "tail_output": clean_output(tail_raw),
-                                "summary": extract_summary(full_text, state),
-                                "full_output": full_text,
+                                "tail_output": stripped,
+                                "summary": "",
+                                "full_output": cleaned,
                                 "timestamp": now,
                             }
 

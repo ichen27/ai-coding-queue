@@ -1,6 +1,5 @@
-import { useState, type KeyboardEvent } from "react";
+import { useState, useEffect, useRef, type KeyboardEvent } from "react";
 import type { SessionState, QueueItem, Command } from "../types";
-import { HistoryPanel } from "./HistoryPanel";
 
 interface SessionCardProps {
   session: SessionState;
@@ -18,8 +17,14 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function SessionCard({ session, queueItem: _queueItem, onCommand }: SessionCardProps) {
   const [reply, setReply] = useState("");
-  const [showOutput, setShowOutput] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
+  const outputRef = useRef<HTMLPreElement>(null);
+
+  // Auto-scroll to bottom when output changes
+  useEffect(() => {
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [session.tail_output]);
 
   function sendReply() {
     if (!reply.trim()) return;
@@ -54,11 +59,14 @@ export function SessionCard({ session, queueItem: _queueItem, onCommand }: Sessi
     <div className={`session-card ${colorClass}`}>
       <div className="card-header">
         <span className="tab-name">{session.tab_name || session.session_id}</span>
-        <span className="status-label">{session.status.replace("_", " ")}</span>
+        <div className="card-header-right">
+          <span className="status-label">{session.status.replace("_", " ")}</span>
+          <button className="btn btn-link" onClick={jumpToTab}>Jump to Tab</button>
+        </div>
       </div>
 
-      {session.summary && (
-        <pre className="summary-block">{session.summary}</pre>
+      {session.tail_output && (
+        <pre ref={outputRef} className="terminal-output">{session.tail_output}</pre>
       )}
 
       {isPermission && (
@@ -78,24 +86,6 @@ export function SessionCard({ session, queueItem: _queueItem, onCommand }: Sessi
           <button className="btn btn-send" onClick={sendReply}>Send</button>
         </div>
       )}
-
-      <div className="card-actions">
-        {session.tail_output && (
-          <button className="btn btn-link" onClick={() => setShowOutput(!showOutput)}>
-            {showOutput ? "Hide output" : "Show output"}
-          </button>
-        )}
-        <button className="btn btn-link" onClick={() => setShowHistory(!showHistory)}>
-          {showHistory ? "Hide history" : "Full history"}
-        </button>
-        <button className="btn btn-link" onClick={jumpToTab}>Jump to Tab</button>
-      </div>
-
-      {showOutput && session.tail_output && (
-        <pre className="tail-output">{session.tail_output}</pre>
-      )}
-
-      {showHistory && <HistoryPanel sessionId={session.session_id} />}
     </div>
   );
 }

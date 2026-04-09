@@ -1,206 +1,164 @@
 import re
 
 # --- Claude Code session detection ---
-# These patterns identify whether a session is running Claude Code at all
 _CLAUDE_CODE_SIGNATURES = [
-    re.compile(r"Context\s+[█░]+\s+\d+%"),       # Context progress bar
-    re.compile(r"\[(?:Opus|Sonnet|Haiku|Claude)\s+[\d.]+\]", re.IGNORECASE),  # Model name
-    re.compile(r"bypass permissions", re.IGNORECASE),  # Permission mode indicator
-    re.compile(r"Co-Authored-By:.*Claude"),        # Commit signature
+    re.compile(r"Context\s+[█░]+\s+\d+%"),
+    re.compile(r"\[(?:Opus|Sonnet|Haiku|Claude)\s+[\d.]+\]", re.IGNORECASE),
+    re.compile(r"bypass permissions", re.IGNORECASE),
+    re.compile(r"Co-Authored-By:.*Claude"),
 ]
 
 
 def is_claude_code_session(output: str) -> bool:
-    """Check if the terminal output looks like a Claude Code session."""
     if not output.strip():
         return False
-    # Need at least one signature match
     for pattern in _CLAUDE_CODE_SIGNATURES:
         if pattern.search(output):
             return True
     return False
 
 
-# --- State detection (only for Claude Code sessions) ---
+# --- State detection ---
 
-# Permission prompts — Claude Code shows these when tools need approval
 _PERMISSION_PATTERNS = [
     re.compile(r"Allow\s+Deny", re.IGNORECASE),
     re.compile(r"\(y/n\)", re.IGNORECASE),
 ]
 
-# Claude Code ready prompt — ❯ after the separator line
-_READY_PATTERNS = [
-    re.compile(r"─{5,}\n❯"),                      # ❯ right after separator
-    re.compile(r"❯\s*$"),                          # ❯ at end of content
-]
-
-# Question patterns — Claude is asking something
-_QUESTION_PATTERNS = [
-    re.compile(r"\?\s*$", re.MULTILINE),
-]
+_READY_PATTERN = re.compile(r"─{5,}\s*\n\s*❯")
 
 
-def detect_state(output: str) -> str:
-    """Analyze terminal output and return the detected Claude Code state.
+def detect_state(output: str, content_changed: bool = False) -> str:
+    """Detect Claude Code state from terminal output.
 
-    Returns one of: "permission_prompt", "ready", "needs_input", "working"
+    Args:
+        output: terminal text
+        content_changed: True if the terminal content changed since last poll.
+            When content is actively changing, Claude is still working even if
+            a ❯ prompt is visible in the buffer from a previous turn.
     """
     if not output.strip():
         return "working"
 
     lines = output.strip().split("\n")
-    recent = "\n".join(lines[-30:])
+    # Only look at the last 8 lines for state detection — avoids matching
+    # prompts/patterns from earlier turns still in scrollback
+    tail = "\n".join(lines[-8:])
 
-    # Highest priority: permission prompts
+    # If content just changed, Claude is likely still streaming output.
+    # Only override if we DON'T see a clear finished signal in the last lines.
+    if content_changed:
+        # Even if content changed, permission prompts are immediate
+        for pattern in _PERMISSION_PATTERNS:
+            if pattern.search(tail):
+                return "permission_prompt"
+        # Content still changing = still working
+        return "working"
+
+    # Permission prompts (highest priority)
     for pattern in _PERMISSION_PATTERNS:
-        if pattern.search(recent):
+        if pattern.search(tail):
             return "permission_prompt"
 
-    # Check if Claude Code is at its input prompt (❯ after separator)
-    for pattern in _READY_PATTERNS:
-        if pattern.search(recent):
-            # If context is 0%, this is a fresh/idle session
-            if re.search(r"Context\s+░{5,}\s+0%", recent):
-                return "idle"
-            return "ready"
+    # Ready prompt: ❯ after a separator in the tail
+    if _READY_PATTERN.search(tail):
+        if re.search(r"Context\s+░{5,}\s+0%", tail):
+            return "idle"
+        return "ready"
 
-    # Question — Claude is asking something (check last non-empty line before status bar)
-    # Skip the status bar lines (Context, bypass permissions, model name)
-    content_lines = []
-    for line in reversed(lines):
+    # Check for question in last meaningful line
+    for line in reversed(lines[-8:]):
         stripped = line.strip()
         if not stripped:
             continue
-        # Skip Claude Code status bar lines
-        if any(kw in stripped for kw in ["Context ", "bypass permissions", "─────", "❯"]):
+        if _is_chrome_line(stripped):
             continue
-        if re.match(r"\[(?:Opus|Sonnet|Haiku|Claude)", stripped):
-            continue
-        content_lines.append(stripped)
-        if len(content_lines) >= 5:
-            break
-
-    if content_lines and "?" in content_lines[0]:
-        return "needs_input"
+        if "?" in stripped:
+            return "needs_input"
+        break
 
     return "working"
 
 
-def extract_tail(output: str, num_lines: int = 50) -> str:
-    """Extract the last N lines from output."""
-    lines = output.split("\n")
-    if len(lines) <= num_lines:
-        return output
-    return "\n".join(lines[-num_lines:])
+# --- Chrome detection and stripping ---
+
+_CHROME_PATTERNS = [
+    re.compile(r"^\s*─{5,}\s*$"),                           # separator lines
+    re.compile(r"^\s*❯"),                                     # prompt line
+    re.compile(r"^\s*\[(?:Opus|Sonnet|Haiku|Claude)\s"),     # model info
+    re.compile(r"^\s*Context\s+[█░]+"),                       # context bar
+    re.compile(r"^\s*⏵⏵\s*bypass permissions"),              # permission mode
+    re.compile(r"^\s*✻"),                                     # timing decorator
+    re.compile(r"^\s*(Worked|Baked|Sautéed|Brewed) for \d"),  # timing line
+    re.compile(r"new task\?", re.IGNORECASE),                 # new task prompt
+]
+
+
+def _is_chrome_line(line: str) -> bool:
+    for p in _CHROME_PATTERNS:
+        if p.search(line):
+            return True
+    return False
 
 
 # ANSI escape code pattern
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[.*?[@-~]")
-# Control characters (except newline and tab)
-_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# Control characters (except newline, tab, and null which we handle separately)
+_CTRL_RE = re.compile(r"[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 def clean_output(text: str) -> str:
-    """Strip ANSI codes, control chars, and collapse excessive blank lines."""
+    """Strip ANSI codes and fix iTerm2 null-byte spacing."""
     text = _ANSI_RE.sub("", text)
-    text = text.replace("\x00", " ")  # iTerm2 uses null bytes as space padding
-    text = text.replace("\xa0", " ")  # non-breaking space → regular space
+    text = text.replace("\x00", " ")
+    text = text.replace("\xa0", " ")
     text = _CTRL_RE.sub("", text)
+    return text
+
+
+def strip_chrome(text: str) -> str:
+    """Remove Claude Code UI chrome lines from output, keep terminal formatting."""
     lines = text.split("\n")
-    cleaned = []
+    kept = []
+    # Walk from end, skip trailing chrome block
+    i = len(lines) - 1
+    trailing_chrome = True
+    while i >= 0:
+        line = lines[i]
+        if trailing_chrome:
+            stripped = line.strip()
+            if not stripped or _is_chrome_line(stripped):
+                i -= 1
+                continue
+            trailing_chrome = False
+        kept.append(lines[i])
+        i -= 1
+    kept.reverse()
+
+    # Also strip chrome lines from the middle (between turns)
+    result = []
+    skip_block = False
+    for line in kept:
+        stripped = line.strip()
+        if re.match(r"─{5,}", stripped):
+            skip_block = True
+            continue
+        if skip_block:
+            if _is_chrome_line(stripped) or not stripped:
+                continue
+            skip_block = False
+        result.append(line)
+
+    # Collapse runs of 3+ blank lines to 2
+    final = []
     blank_count = 0
-    for line in lines:
-        stripped = line.rstrip()
-        if not stripped:
+    for line in result:
+        if not line.strip():
             blank_count += 1
-            if blank_count <= 1:
-                cleaned.append("")
+            if blank_count <= 2:
+                final.append(line)
         else:
             blank_count = 0
-            cleaned.append(stripped)
-    return "\n".join(cleaned).strip()
+            final.append(line)
 
-
-def _is_chrome_line(line: str) -> bool:
-    """Check if a line is Claude Code UI chrome (status bar, separators, etc.)."""
-    stripped = line.strip()
-    if not stripped:
-        return False
-    if any(kw in stripped for kw in ["Context ", "bypass permissions", "new task?"]):
-        return True
-    if re.match(r"─{5,}", stripped):
-        return True
-    if re.match(r"❯", stripped):
-        return True
-    if re.match(r"\[(?:Opus|Sonnet|Haiku|Claude)", stripped):
-        return True
-    if stripped.startswith("✻"):
-        return True
-    if re.match(r"^[▘▝▗▖▚▞▀▄█░⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\s/|\\-]+$", stripped) and len(stripped) < 20:
-        return True
-    return False
-
-
-def extract_summary(output: str, state: str) -> str:
-    """Extract the last full block of Claude's response from terminal output."""
-    cleaned = clean_output(output)
-    if not cleaned:
-        return ""
-
-    lines = cleaned.split("\n")
-
-    # Walk backwards from end, skip chrome, collect content until we hit
-    # a separator (─────) or run out of lines. This gives us the last
-    # full response block.
-    block_lines: list[str] = []
-    found_content = False
-
-    for line in reversed(lines):
-        stripped = line.strip()
-
-        # Skip empty lines at the very end (before we find content)
-        if not found_content and not stripped:
-            continue
-
-        # Skip chrome lines at the end (status bar, prompt, separators)
-        if not found_content and _is_chrome_line(line):
-            continue
-
-        # Skip timing lines ("Worked for 44s") at boundary
-        if not found_content and re.match(r"(Worked|Baked|Sautéed|Brewed) for ", stripped):
-            continue
-
-        # Once we've started collecting content, a separator means end of block
-        if found_content and re.match(r"─{5,}", stripped):
-            break
-
-        # Also stop at a user prompt line (❯ ...) which separates turns
-        if found_content and re.match(r"❯", stripped):
-            break
-
-        found_content = True
-        block_lines.append(line)
-
-        # Cap at ~30 lines to keep it reasonable
-        if len(block_lines) >= 30:
-            break
-
-    if not block_lines:
-        return ""
-
-    # Reverse back to original order and strip trailing/leading blanks
-    block_lines.reverse()
-    # Trim leading/trailing empty lines
-    while block_lines and not block_lines[0].strip():
-        block_lines.pop(0)
-    while block_lines and not block_lines[-1].strip():
-        block_lines.pop()
-
-    return "\n".join(block_lines)
-
-
-def _truncate(text: str, max_len: int) -> str:
-    if len(text) <= max_len:
-        return text
-    return text[:max_len - 1] + "…"
+    return "\n".join(final).strip()
