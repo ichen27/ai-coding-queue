@@ -60,6 +60,9 @@ def detect_state(output: str) -> str:
     # Check if Claude Code is at its input prompt (❯ after separator)
     for pattern in _READY_PATTERNS:
         if pattern.search(recent):
+            # If context is 0%, this is a fresh/idle session
+            if re.search(r"Context\s+░{5,}\s+0%", recent):
+                return "idle"
             return "ready"
 
     # Question — Claude is asking something (check last non-empty line before status bar)
@@ -101,6 +104,8 @@ _CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 def clean_output(text: str) -> str:
     """Strip ANSI codes, control chars, and collapse excessive blank lines."""
     text = _ANSI_RE.sub("", text)
+    text = text.replace("\x00", " ")  # iTerm2 uses null bytes as space padding
+    text = text.replace("\xa0", " ")  # non-breaking space → regular space
     text = _CTRL_RE.sub("", text)
     lines = text.split("\n")
     cleaned = []
@@ -139,6 +144,9 @@ def extract_summary(output: str, state: str) -> str:
         if stripped.startswith("Worked for") or stripped.startswith("Baked for") or stripped.startswith("Sautéed for") or stripped.startswith("Brewed for"):
             continue
         if stripped.startswith("✻"):
+            continue
+        # Skip Claude Code spinner/braille animation remnants
+        if re.match(r"^[▘▝▗▖▚▞▀▄█░⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\s/|\\-]+", stripped) and len(stripped) < 20:
             continue
         content_lines.append(stripped)
         if len(content_lines) >= 5:

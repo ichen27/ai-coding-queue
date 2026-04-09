@@ -36,7 +36,20 @@ async def read_session_contents(session) -> str:
     if num_lines <= 0:
         return ""
     contents = await session.async_get_contents(first_line, num_lines)
-    return "\n".join(line.string for line in contents)
+    # Respect soft-wrap: only insert \n at hard newlines, use space at soft wraps
+    parts = []
+    for i, line in enumerate(contents):
+        text = line.string.rstrip()
+        parts.append(text)
+        if i < len(contents) - 1:
+            # hard_newline=False means line is soft-wrapped continuation
+            if line.hard_eol:
+                parts.append("\n")
+            else:
+                # Add space at soft-wrap boundary to preserve word spacing
+                if text and not text.endswith(" "):
+                    parts.append(" ")
+    return "".join(parts)
 
 
 async def connect_to_server():
