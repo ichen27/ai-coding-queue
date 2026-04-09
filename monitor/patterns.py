@@ -122,54 +122,82 @@ def clean_output(text: str) -> str:
     return "\n".join(cleaned).strip()
 
 
+def _is_chrome_line(line: str) -> bool:
+    """Check if a line is Claude Code UI chrome (status bar, separators, etc.)."""
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if any(kw in stripped for kw in ["Context ", "bypass permissions", "new task?"]):
+        return True
+    if re.match(r"─{5,}", stripped):
+        return True
+    if re.match(r"❯", stripped):
+        return True
+    if re.match(r"\[(?:Opus|Sonnet|Haiku|Claude)", stripped):
+        return True
+    if stripped.startswith("✻"):
+        return True
+    if re.match(r"^[▘▝▗▖▚▞▀▄█░⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\s/|\\-]+$", stripped) and len(stripped) < 20:
+        return True
+    return False
+
+
 def extract_summary(output: str, state: str) -> str:
-    """Extract a one-line summary from cleaned output based on detected state."""
+    """Extract the last full block of Claude's response from terminal output."""
     cleaned = clean_output(output)
     if not cleaned:
         return ""
 
     lines = cleaned.split("\n")
 
-    # Find meaningful content lines (skip status bar, separators, empty)
-    content_lines = []
+    # Walk backwards from end, skip chrome, collect content until we hit
+    # a separator (─────) or run out of lines. This gives us the last
+    # full response block.
+    block_lines: list[str] = []
+    found_content = False
+
     for line in reversed(lines):
         stripped = line.strip()
-        if not stripped:
+
+        # Skip empty lines at the very end (before we find content)
+        if not found_content and not stripped:
             continue
-        # Skip Claude Code chrome
-        if any(kw in stripped for kw in ["Context ", "bypass permissions", "─────", "❯", "new task?"]):
+
+        # Skip chrome lines at the end (status bar, prompt, separators)
+        if not found_content and _is_chrome_line(line):
             continue
-        if re.match(r"\[(?:Opus|Sonnet|Haiku|Claude)", stripped):
+
+        # Skip timing lines ("Worked for 44s") at boundary
+        if not found_content and re.match(r"(Worked|Baked|Sautéed|Brewed) for ", stripped):
             continue
-        if stripped.startswith("Worked for") or stripped.startswith("Baked for") or stripped.startswith("Sautéed for") or stripped.startswith("Brewed for"):
-            continue
-        if stripped.startswith("✻"):
-            continue
-        # Skip Claude Code spinner/braille animation remnants
-        if re.match(r"^[▘▝▗▖▚▞▀▄█░⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\s/|\\-]+", stripped) and len(stripped) < 20:
-            continue
-        content_lines.append(stripped)
-        if len(content_lines) >= 5:
+
+        # Once we've started collecting content, a separator means end of block
+        if found_content and re.match(r"─{5,}", stripped):
             break
 
-    if not content_lines:
+        # Also stop at a user prompt line (❯ ...) which separates turns
+        if found_content and re.match(r"❯", stripped):
+            break
+
+        found_content = True
+        block_lines.append(line)
+
+        # Cap at ~30 lines to keep it reasonable
+        if len(block_lines) >= 30:
+            break
+
+    if not block_lines:
         return ""
 
-    if state == "permission_prompt":
-        for line in content_lines:
-            lower = line.lower()
-            if "allow" in lower and "deny" in lower:
-                continue
-            if line.strip():
-                return _truncate(line.strip(), 120)
+    # Reverse back to original order and strip trailing/leading blanks
+    block_lines.reverse()
+    # Trim leading/trailing empty lines
+    while block_lines and not block_lines[0].strip():
+        block_lines.pop(0)
+    while block_lines and not block_lines[-1].strip():
+        block_lines.pop()
 
-    if state == "needs_input":
-        for line in content_lines:
-            if "?" in line:
-                return _truncate(line.strip(), 120)
-
-    # For ready/working — show the last meaningful content line
-    return _truncate(content_lines[0].strip(), 120)
+    return "\n".join(block_lines)
 
 
 def _truncate(text: str, max_len: int) -> str:

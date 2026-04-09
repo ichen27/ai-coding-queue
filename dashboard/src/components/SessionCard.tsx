@@ -58,7 +58,7 @@ export function SessionCard({ session, queueItem: _queueItem, onCommand }: Sessi
       </div>
 
       {session.summary && (
-        <div className="summary-line">{session.summary}</div>
+        <pre className="summary-block">{session.summary}</pre>
       )}
 
       {isPermission && (
