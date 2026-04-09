@@ -1,9 +1,8 @@
-import type { SessionState, QueueItem, Command } from "../types";
+import type { SessionState, Command } from "../types";
 import { SessionCard } from "./SessionCard";
 
 interface QueueListProps {
   sessions: Record<string, SessionState>;
-  queue: QueueItem[];
   onCommand: (cmd: Command) => void;
 }
 
@@ -22,18 +21,24 @@ function groupSessions(sessions: Record<string, SessionState>) {
     }
   }
 
-  attention.sort((a, b) => b.last_event_time - a.last_event_time);
-  working.sort((a, b) => b.last_event_time - a.last_event_time);
+  // Stable sort: alphabetical by tab name, then by session_id as tiebreaker
+  const stableSort = (a: SessionState, b: SessionState) => {
+    const nameA = (a.tab_name || a.session_id).toLowerCase();
+    const nameB = (b.tab_name || b.session_id).toLowerCase();
+    if (nameA < nameB) return -1;
+    if (nameA > nameB) return 1;
+    return a.session_id < b.session_id ? -1 : 1;
+  };
+
+  attention.sort(stableSort);
+  working.sort(stableSort);
+  idle.sort(stableSort);
 
   return { attention, working, idle };
 }
 
-export function QueueList({ sessions, queue, onCommand }: QueueListProps) {
+export function QueueList({ sessions, onCommand }: QueueListProps) {
   const { attention, working, idle } = groupSessions(sessions);
-
-  function findQueueItem(sessionId: string): QueueItem | undefined {
-    return queue.find((q) => q.session_id === sessionId && q.status === "pending");
-  }
 
   return (
     <div className="queue-list">
@@ -41,7 +46,7 @@ export function QueueList({ sessions, queue, onCommand }: QueueListProps) {
         <section>
           <h2 className="section-title">Needs Attention ({attention.length})</h2>
           {attention.map((s) => (
-            <SessionCard key={s.session_id} session={s} queueItem={findQueueItem(s.session_id)} onCommand={onCommand} />
+            <SessionCard key={s.session_id} session={s} onCommand={onCommand} />
           ))}
         </section>
       )}

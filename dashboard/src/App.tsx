@@ -2,20 +2,18 @@ import { useCallback, useState } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { StatusBar } from "./components/StatusBar";
 import { QueueList } from "./components/QueueList";
-import type { SessionState, QueueItem, Command, ServerMessage } from "./types";
+import type { SessionState, Command, ServerMessage } from "./types";
 
 export default function App() {
   const [sessions, setSessions] = useState<Record<string, SessionState>>({});
-  const [queue, setQueue] = useState<QueueItem[]>([]);
 
   const handleMessage = useCallback((msg: ServerMessage) => {
     switch (msg.type) {
       case "snapshot":
         setSessions(msg.sessions);
-        setQueue(msg.queue);
         break;
       case "event": {
-        const { event, queue_item } = msg;
+        const { event } = msg;
         setSessions((prev) => ({
           ...prev,
           [event.session_id]: {
@@ -27,19 +25,13 @@ export default function App() {
             last_event_time: event.timestamp,
           },
         }));
-        if (queue_item) {
-          setQueue((prev) => [...prev, queue_item]);
-          if (Notification.permission === "granted") {
-            new Notification(`Claude Code: ${event.tab_name}`, {
-              body: event.event_type.replace("_", " "),
-            });
-          }
+        if (msg.queue_item && Notification.permission === "granted") {
+          new Notification(`Claude Code: ${event.tab_name}`, {
+            body: event.event_type.replace("_", " "),
+          });
         }
         break;
       }
-      case "queue_update":
-        setQueue(msg.queue);
-        break;
     }
   }, []);
 
@@ -54,13 +46,6 @@ export default function App() {
           if (!s) return prev;
           return { ...prev, [cmd.session_id]: { ...s, status: "working" } };
         });
-        setQueue((prev) =>
-          prev.map((q) =>
-            q.session_id === cmd.session_id && q.status === "pending"
-              ? { ...q, status: "resolved" as const }
-              : q
-          )
-        );
       }
     },
     [sendCommand]
@@ -80,7 +65,7 @@ export default function App() {
     <div className="app">
       <StatusBar connected={connected} attentionCount={attention} workingCount={working} idleCount={idle} />
       <main>
-        <QueueList sessions={sessions} queue={queue} onCommand={handleCommand} />
+        <QueueList sessions={sessions} onCommand={handleCommand} />
       </main>
     </div>
   );

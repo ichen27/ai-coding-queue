@@ -14,7 +14,7 @@ import websockets
 import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
-from patterns import detect_state, clean_output, strip_chrome, is_claude_code_session
+from patterns import detect_state, clean_output, strip_chrome, is_claude_code_session, extract_last_prompt
 
 SERVER_URL = "ws://localhost:7890/ws/monitor"
 POLL_INTERVAL = 2.0
@@ -97,6 +97,15 @@ async def handle_commands(ws, app):
                             print(f"[monitor] Focused tab for {sid}")
                             break
 
+            elif cmd == "rename_tab":
+                name = payload.get("name", "")
+                for window in app.terminal_windows:
+                    for tab in window.tabs:
+                        if session in tab.sessions:
+                            await tab.async_set_title(name)
+                            print(f"[monitor] Renamed tab for {sid}: {name}")
+                            break
+
             elif cmd == "get_history":
                 full_text = await read_session_contents(session)
                 print(f"[monitor] History requested for {sid}: {len(full_text.split(chr(10)))} lines")
@@ -149,7 +158,7 @@ async def poll_sessions(ws, app):
                                 "tab_name": str(tab_name),
                                 "event_type": state,
                                 "tail_output": stripped,
-                                "summary": "",
+                                "summary": extract_last_prompt(full_text),
                                 "full_output": cleaned,
                                 "timestamp": now,
                             }

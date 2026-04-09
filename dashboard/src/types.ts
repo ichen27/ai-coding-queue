@@ -29,7 +29,7 @@ export interface MonitorEvent {
 }
 
 export interface Command {
-  command: "send_text" | "focus_tab" | "get_history";
+  command: "send_text" | "focus_tab" | "get_history" | "rename_tab";
   session_id: string;
   payload: Record<string, string>;
 }

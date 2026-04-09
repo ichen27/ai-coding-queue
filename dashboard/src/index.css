@@ -96,12 +96,45 @@ body {
   padding: 10px 14px;
 }
 
-.card-header-right { display: flex; align-items: center; gap: 12px; }
+.card-title-area {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.card-header-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 
 .tab-name {
   font-weight: 500;
   font-size: 13px;
   color: var(--text);
+  cursor: default;
+  flex-shrink: 0;
+}
+.tab-name:hover { color: var(--blue); cursor: text; }
+
+.tab-name-input {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--blue);
+  border-radius: 4px;
+  padding: 1px 6px;
+  outline: none;
+  width: 160px;
+  font-family: inherit;
+}
+
+.last-prompt {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .status-label {

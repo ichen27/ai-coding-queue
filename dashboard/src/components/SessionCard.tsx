@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, type KeyboardEvent } from "react";
-import type { SessionState, QueueItem, Command } from "../types";
+import type { SessionState, Command } from "../types";
 
 interface SessionCardProps {
   session: SessionState;
-  queueItem?: QueueItem;
   onCommand: (cmd: Command) => void;
 }
 
@@ -15,16 +14,47 @@ const STATUS_COLORS: Record<string, string> = {
   idle: "card-gray",
 };
 
-export function SessionCard({ session, queueItem: _queueItem, onCommand }: SessionCardProps) {
+export function SessionCard({ session, onCommand }: SessionCardProps) {
   const [reply, setReply] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState("");
   const outputRef = useRef<HTMLPreElement>(null);
+  const editRef = useRef<HTMLInputElement>(null);
 
-  // Auto-scroll to bottom when output changes
   useEffect(() => {
     if (outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
   }, [session.tail_output]);
+
+  useEffect(() => {
+    if (editing && editRef.current) {
+      editRef.current.focus();
+      editRef.current.select();
+    }
+  }, [editing]);
+
+  function startEditing() {
+    setEditName(session.tab_name || session.session_id);
+    setEditing(true);
+  }
+
+  function commitRename() {
+    const name = editName.trim();
+    if (name && name !== session.tab_name) {
+      onCommand({
+        command: "rename_tab",
+        session_id: session.session_id,
+        payload: { name },
+      });
+    }
+    setEditing(false);
+  }
+
+  function handleEditKeyDown(e: KeyboardEvent) {
+    if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+    if (e.key === "Escape") { setEditing(false); }
+  }
 
   function sendReply() {
     if (!reply.trim()) return;
@@ -54,11 +84,30 @@ export function SessionCard({ session, queueItem: _queueItem, onCommand }: Sessi
   const colorClass = STATUS_COLORS[session.status] || "card-gray";
   const needsReply = session.status === "ready" || session.status === "needs_input";
   const isPermission = session.status === "permission_prompt";
+  const lastPrompt = session.summary;
 
   return (
     <div className={`session-card ${colorClass}`}>
       <div className="card-header">
-        <span className="tab-name">{session.tab_name || session.session_id}</span>
+        <div className="card-title-area">
+          {editing ? (
+            <input
+              ref={editRef}
+              className="tab-name-input"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onKeyDown={handleEditKeyDown}
+              onBlur={commitRename}
+            />
+          ) : (
+            <span className="tab-name" onDoubleClick={startEditing}>
+              {session.tab_name || session.session_id}
+            </span>
+          )}
+          {lastPrompt && (
+            <span className="last-prompt">{lastPrompt}</span>
+          )}
+        </div>
         <div className="card-header-right">
           <span className="status-label">{session.status.replace("_", " ")}</span>
           <button className="btn btn-link" onClick={jumpToTab}>Jump to Tab</button>

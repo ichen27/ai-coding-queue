@@ -162,3 +162,23 @@ def strip_chrome(text: str) -> str:
             final.append(line)
 
     return "\n".join(final).strip()
+
+
+_PROMPT_RE = re.compile(r"❯\s*(.+)")
+
+
+def extract_last_prompt(text: str) -> str:
+    """Find the last user prompt (text after ❯) in terminal output."""
+    cleaned = clean_output(text)
+    lines = cleaned.split("\n")
+    # Walk backwards to find the last ❯ line with actual text
+    for line in reversed(lines):
+        m = _PROMPT_RE.search(line.strip())
+        if m:
+            prompt = m.group(1).strip()
+            if prompt and len(prompt) > 1:
+                # Truncate long prompts
+                if len(prompt) > 80:
+                    return prompt[:77] + "..."
+                return prompt
+    return ""
